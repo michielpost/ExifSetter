@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text.RegularExpressions;
-using SixLabors.ImageSharp;
+﻿using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
+using System.Text.RegularExpressions;
 
 namespace ExifSetter
 {
@@ -11,8 +8,23 @@ namespace ExifSetter
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("EXIF Date Setter");
-            Console.WriteLine("================");
+            Console.WriteLine("EXIF Date Setter & File Manager");
+            Console.WriteLine("=================================");
+            Console.WriteLine();
+
+            // Ask for feature selection
+            Console.WriteLine("Select feature:");
+            Console.WriteLine("1. Set EXIF dates from folder/file names");
+            Console.WriteLine("2. Move and rename files to EXPORT folder");
+            Console.Write("Enter choice (1 or 2): ");
+            string? choice = Console.ReadLine();
+
+            if (choice != "1" && choice != "2")
+            {
+                Console.WriteLine("Error: Invalid choice. Please enter 1 or 2.");
+                return;
+            }
+
             Console.WriteLine();
 
             // Ask for directory
@@ -35,8 +47,15 @@ namespace ExifSetter
             Console.WriteLine($"Scanning directory: {directoryPath}");
             Console.WriteLine();
 
-            // Process the directory
-            ProcessDirectory(directoryPath);
+            // Process based on choice
+            if (choice == "1")
+            {
+                ProcessDirectory(directoryPath);
+            }
+            else
+            {
+                ProcessFileMoving(directoryPath);
+            }
 
             Console.WriteLine();
             Console.WriteLine("Processing complete!");
@@ -69,18 +88,18 @@ namespace ExifSetter
                         {
                             // Set the EXIF date
                             SetExifDate(filePath, parsedDate.Value);
-                            Console.WriteLine($"✓ Set date {parsedDate.Value:yyyy-MM-dd} for: {Path.GetFileName(filePath)}");
+                            Console.WriteLine($"✓ Set date {parsedDate.Value:yyyy-MM-dd} for: {filePath}");
                             successCount++;
                         }
                         else
                         {
-                            Console.WriteLine($"- Skipped (no date found): {Path.GetFileName(filePath)}");
+                            Console.WriteLine($"- Skipped (no date found): {filePath}");
                             skipCount++;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"✗ Error processing {Path.GetFileName(filePath)}: {ex.Message}");
+                        Console.WriteLine($"✗ Error processing {filePath}: {ex.Message}");
                         errorCount++;
                     }
                 }
@@ -126,7 +145,7 @@ namespace ExifSetter
                 int year = int.Parse(match.Groups[1].Value);
                 int month = int.Parse(match.Groups[2].Value);
                 int day = int.Parse(match.Groups[3].Value);
-                
+
                 if (IsValidDate(year, month, day))
                 {
                     return new DateTime(year, month, day);
@@ -140,7 +159,7 @@ namespace ExifSetter
             {
                 int year = int.Parse(match.Groups[1].Value);
                 int month = int.Parse(match.Groups[2].Value);
-                
+
                 if (IsValidDate(year, month, 1))
                 {
                     return new DateTime(year, month, 1);
@@ -153,7 +172,7 @@ namespace ExifSetter
             if (match.Success)
             {
                 int year = int.Parse(match.Groups[1].Value);
-                
+
                 if (year >= 1900 && year <= 2100)
                 {
                     return new DateTime(year, 1, 1);
@@ -183,18 +202,18 @@ namespace ExifSetter
                 {
                     // Get or create EXIF profile
                     var exifProfile = image.Metadata.ExifProfile ?? new ExifProfile();
-                    
+
                     // Format the date as required by EXIF: "YYYY:MM:DD HH:MM:SS"
                     string exifDateString = date.ToString("yyyy:MM:dd HH:mm:ss");
-                    
+
                     // Set EXIF date/time tags
                     exifProfile.SetValue(ExifTag.DateTime, exifDateString);
                     exifProfile.SetValue(ExifTag.DateTimeOriginal, exifDateString);
                     exifProfile.SetValue(ExifTag.DateTimeDigitized, exifDateString);
-                    
+
                     // Attach the profile back to the image
                     image.Metadata.ExifProfile = exifProfile;
-                    
+
                     // Save the image with the updated EXIF data
                     image.Save(filePath);
                 }
@@ -202,6 +221,95 @@ namespace ExifSetter
             catch (Exception ex)
             {
                 throw new Exception($"Failed to set EXIF date: {ex.Message}", ex);
+            }
+        }
+
+        static void ProcessFileMoving(string directoryPath)
+        {
+            try
+            {
+                // Get all JPG files in the directory and subdirectories
+                var jpgFiles = new List<string>();
+                jpgFiles.AddRange(Directory.EnumerateFiles(directoryPath, "*.jpg", SearchOption.AllDirectories));
+                jpgFiles.AddRange(Directory.EnumerateFiles(directoryPath, "*.jpeg", SearchOption.AllDirectories));
+
+                Console.WriteLine($"Found {jpgFiles.Count} JPG files.");
+                Console.WriteLine();
+
+                // Create EXPORT folder
+                string exportPath = Path.Combine(directoryPath, "EXPORT");
+                if (!Directory.Exists(exportPath))
+                {
+                    Directory.CreateDirectory(exportPath);
+                    Console.WriteLine($"Created EXPORT folder: {exportPath}");
+                    Console.WriteLine();
+                }
+
+                int successCount = 0;
+                int errorCount = 0;
+
+                foreach (string filePath in jpgFiles)
+                {
+                    try
+                    {
+                        // Skip files already in EXPORT folder
+                        if (filePath.Contains(Path.Combine(directoryPath, "EXPORT")))
+                        {
+                            Console.WriteLine($"- Skipped (already in EXPORT): {filePath}");
+                            continue;
+                        }
+
+                        // Get relative path from base directory
+                        string relativePath = Path.GetRelativePath(directoryPath, filePath);
+
+                        // Get directory part (without filename)
+                        string? relativeDir = Path.GetDirectoryName(relativePath);
+
+                        // Create new filename
+                        string originalFileName = Path.GetFileName(filePath);
+                        string newFileName;
+
+                        if (!string.IsNullOrEmpty(relativeDir) && relativeDir != ".")
+                        {
+                            // Replace path separators with underscores
+                            string folderPrefix = relativeDir.Replace(Path.DirectorySeparatorChar, '_')
+                                                              .Replace(Path.AltDirectorySeparatorChar, '_');
+                            newFileName = $"{folderPrefix}_{originalFileName}";
+                        }
+                        else
+                        {
+                            newFileName = originalFileName;
+                        }
+
+                        // Handle potential duplicate filenames
+                        string destinationPath = Path.Combine(exportPath, newFileName);
+                        int counter = 1;
+                        while (File.Exists(destinationPath))
+                        {
+                            string nameWithoutExt = Path.GetFileNameWithoutExtension(newFileName);
+                            string extension = Path.GetExtension(newFileName);
+                            destinationPath = Path.Combine(exportPath, $"{nameWithoutExt}_{counter}{extension}");
+                            counter++;
+                        }
+
+                        // Move the file
+                        File.Move(filePath, destinationPath);
+                        Console.WriteLine($"✓ Moved: {relativePath} -> {Path.GetFileName(destinationPath)}");
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"✗ Error processing {filePath}: {ex.Message}");
+                        errorCount++;
+                    }
+                }
+
+                Console.WriteLine();
+                Console.WriteLine($"Summary: {successCount} moved, {errorCount} errors");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error accessing directory: {ex.Message}");
             }
         }
     }
