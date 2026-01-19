@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using SixLabors.ImageSharp;
@@ -47,10 +48,8 @@ namespace ExifSetter
             {
                 // Get all JPG files in the directory and subdirectories
                 var jpgFiles = new List<string>();
-                jpgFiles.AddRange(Directory.GetFiles(directoryPath, "*.jpg", SearchOption.AllDirectories));
-                jpgFiles.AddRange(Directory.GetFiles(directoryPath, "*.jpeg", SearchOption.AllDirectories));
-                jpgFiles.AddRange(Directory.GetFiles(directoryPath, "*.JPG", SearchOption.AllDirectories));
-                jpgFiles.AddRange(Directory.GetFiles(directoryPath, "*.JPEG", SearchOption.AllDirectories));
+                jpgFiles.AddRange(Directory.EnumerateFiles(directoryPath, "*.jpg", SearchOption.AllDirectories));
+                jpgFiles.AddRange(Directory.EnumerateFiles(directoryPath, "*.jpeg", SearchOption.AllDirectories));
 
                 Console.WriteLine($"Found {jpgFiles.Count} JPG files.");
                 Console.WriteLine();
