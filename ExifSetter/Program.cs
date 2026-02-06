@@ -80,15 +80,24 @@ namespace ExifSetter
                     .SelectMany(g => g.OrderBy(f => Path.GetFileName(f)))
                     .ToList();
 
+                int totalFiles = groupedFiles.Count;
+                int currentFile = 0;
                 int successCount = 0;
                 int skipCount = 0;
+                int alreadySetCount = 0;
                 int errorCount = 0;
+
+                // Track skipped and error files for final report
+                List<(string FilePath, string Reason)> skippedFiles = new();
+                List<(string FilePath, string Error)> errorFiles = new();
 
                 // Track the last used datetime to ensure unique timestamps
                 Dictionary<DateTime, DateTime> lastUsedDateTimes = new();
 
                 foreach (string filePath in groupedFiles)
                 {
+                    currentFile++;
+
                     try
                     {
                         // Try to parse date from the file path
@@ -121,26 +130,60 @@ namespace ExifSetter
                             // Update the last used datetime for this base date
                             lastUsedDateTimes[baseDate] = dateTimeToSet;
 
+                            // Check if EXIF date is already set to the same value
+                            DateTime? currentExifDate = GetExifDate(filePath);
+                            if (currentExifDate.HasValue && currentExifDate.Value == dateTimeToSet)
+                            {
+                                Console.WriteLine($"[{currentFile}/{totalFiles}] = Already set {dateTimeToSet:yyyy-MM-dd HH:mm:ss}: {filePath}");
+                                alreadySetCount++;
+                                continue;
+                            }
+
                             // Set the EXIF date with unique timestamp
                             SetExifDate(filePath, dateTimeToSet);
-                            Console.WriteLine($"✓ Set date {dateTimeToSet:yyyy-MM-dd HH:mm:ss} for: {filePath}");
+                            Console.WriteLine($"[{currentFile}/{totalFiles}] ✓ Set date {dateTimeToSet:yyyy-MM-dd HH:mm:ss}: {filePath}");
                             successCount++;
                         }
                         else
                         {
-                            Console.WriteLine($"- Skipped (no date found): {filePath}");
+                            Console.WriteLine($"[{currentFile}/{totalFiles}] - Skipped (no date found): {filePath}");
+                            skippedFiles.Add((filePath, "No date found in path"));
                             skipCount++;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"✗ Error processing {filePath}: {ex.Message}");
+                        Console.WriteLine($"[{currentFile}/{totalFiles}] ✗ Error: {filePath}: {ex.Message}");
+                        errorFiles.Add((filePath, ex.Message));
                         errorCount++;
                     }
                 }
 
                 Console.WriteLine();
-                Console.WriteLine($"Summary: {successCount} updated, {skipCount} skipped, {errorCount} errors");
+                Console.WriteLine($"Summary: {successCount} updated, {alreadySetCount} already set, {skipCount} skipped, {errorCount} errors");
+
+                // Print detailed report of skipped and error files
+                if (skippedFiles.Count > 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("=== SKIPPED FILES ===");
+                    foreach (var (file, reason) in skippedFiles)
+                    {
+                        Console.WriteLine($"  {file}");
+                        Console.WriteLine($"    Reason: {reason}");
+                    }
+                }
+
+                if (errorFiles.Count > 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("=== ERROR FILES ===");
+                    foreach (var (file, error) in errorFiles)
+                    {
+                        Console.WriteLine($"  {file}");
+                        Console.WriteLine($"    Error: {error}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -226,6 +269,34 @@ namespace ExifSetter
             if (day < 1 || day > DateTime.DaysInMonth(year, month))
                 return false;
             return true;
+        }
+
+        static DateTime? GetExifDate(string filePath)
+        {
+            try
+            {
+                using var image = Image.Load(filePath);
+                var exifProfile = image.Metadata.ExifProfile;
+
+                if (exifProfile == null)
+                    return null;
+
+                exifProfile.TryGetValue(ExifTag.DateTimeOriginal, out var dateTimeOriginal);
+                if (dateTimeOriginal?.GetValue() is string dateString)
+                {
+                    if (DateTime.TryParseExact(dateString, "yyyy:MM:dd HH:mm:ss",
+                        null, System.Globalization.DateTimeStyles.None, out DateTime result))
+                    {
+                        return result;
+                    }
+                }
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         static void SetExifDate(string filePath, DateTime date)
