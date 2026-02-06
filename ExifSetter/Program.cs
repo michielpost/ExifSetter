@@ -15,7 +15,7 @@ namespace ExifSetter
             // Ask for feature selection
             Console.WriteLine("Select feature:");
             Console.WriteLine("1. Set EXIF dates from folder/file names");
-            Console.WriteLine("2. Move and rename files to EXPORT folder");
+            Console.WriteLine("2. Copy and rename files to EXPORT folder");
             Console.Write("Enter choice (1 or 2): ");
             string? choice = Console.ReadLine();
 
@@ -54,7 +54,7 @@ namespace ExifSetter
             }
             else
             {
-                ProcessFileMoving(directoryPath);
+                ProcessFileCopying(directoryPath);
             }
 
             Console.WriteLine();
@@ -73,11 +73,21 @@ namespace ExifSetter
                 Console.WriteLine($"Found {jpgFiles.Count} JPG files.");
                 Console.WriteLine();
 
+                // Group files by directory to maintain folder grouping, then sort by filename within each group
+                var groupedFiles = jpgFiles
+                    .GroupBy(f => Path.GetDirectoryName(f) ?? string.Empty)
+                    .OrderBy(g => g.Key)
+                    .SelectMany(g => g.OrderBy(f => Path.GetFileName(f)))
+                    .ToList();
+
                 int successCount = 0;
                 int skipCount = 0;
                 int errorCount = 0;
 
-                foreach (string filePath in jpgFiles)
+                // Track the last used datetime to ensure unique timestamps
+                Dictionary<DateTime, DateTime> lastUsedDateTimes = new();
+
+                foreach (string filePath in groupedFiles)
                 {
                     try
                     {
@@ -86,9 +96,34 @@ namespace ExifSetter
 
                         if (parsedDate.HasValue)
                         {
-                            // Set the EXIF date
-                            SetExifDate(filePath, parsedDate.Value);
-                            Console.WriteLine($"✓ Set date {parsedDate.Value:yyyy-MM-dd} for: {filePath}");
+                            // Get or initialize the last used datetime for this base date
+                            DateTime baseDate = parsedDate.Value.Date;
+                            DateTime dateTimeToSet;
+
+                            if (lastUsedDateTimes.TryGetValue(baseDate, out DateTime lastUsed))
+                            {
+                                // Increment by 1 second to ensure unique timestamp
+                                dateTimeToSet = lastUsed.AddSeconds(1);
+
+                                // If we've exceeded the day, increment by minutes instead
+                                if (dateTimeToSet.Date != baseDate)
+                                {
+                                    // Reset and use smaller increments (shouldn't happen with normal file counts)
+                                    dateTimeToSet = lastUsed.AddMilliseconds(1);
+                                }
+                            }
+                            else
+                            {
+                                // First file for this date, start at midnight
+                                dateTimeToSet = baseDate;
+                            }
+
+                            // Update the last used datetime for this base date
+                            lastUsedDateTimes[baseDate] = dateTimeToSet;
+
+                            // Set the EXIF date with unique timestamp
+                            SetExifDate(filePath, dateTimeToSet);
+                            Console.WriteLine($"✓ Set date {dateTimeToSet:yyyy-MM-dd HH:mm:ss} for: {filePath}");
                             successCount++;
                         }
                         else
@@ -224,7 +259,7 @@ namespace ExifSetter
             }
         }
 
-        static void ProcessFileMoving(string directoryPath)
+        static void ProcessFileCopying(string directoryPath)
         {
             try
             {
@@ -292,9 +327,9 @@ namespace ExifSetter
                             counter++;
                         }
 
-                        // Move the file
-                        File.Move(filePath, destinationPath);
-                        Console.WriteLine($"✓ Moved: {relativePath} -> {Path.GetFileName(destinationPath)}");
+                        // Copy the file (changed from Move)
+                        File.Copy(filePath, destinationPath);
+                        Console.WriteLine($"✓ Copied: {relativePath} -> {Path.GetFileName(destinationPath)}");
                         successCount++;
                     }
                     catch (Exception ex)
@@ -305,7 +340,7 @@ namespace ExifSetter
                 }
 
                 Console.WriteLine();
-                Console.WriteLine($"Summary: {successCount} moved, {errorCount} errors");
+                Console.WriteLine($"Summary: {successCount} copied, {errorCount} errors");
             }
             catch (Exception ex)
             {
